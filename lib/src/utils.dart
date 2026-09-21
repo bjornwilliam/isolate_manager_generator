@@ -5,12 +5,50 @@ import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:isolate_manager_generator/src/model/exceptions.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 /// Prints debug information if in debug mode
 void printDebug(Object? Function() log) {
   // Print the log message
   // ignore: avoid_print
   print(log());
+}
+
+/// Reads `pubspec.yaml` from current working directory and returns the
+/// `isolate_manager` configuration node as a plain `Map<String, dynamic>`.
+Map<String, dynamic>? readPubspecConfig() {
+  final file = File('pubspec.yaml');
+  if (!file.existsSync()) return null;
+
+  final content = file.readAsStringSync();
+  final yaml = loadYaml(content);
+  if (yaml == null || yaml is! YamlMap) return null;
+
+  // Support multiple key styles:
+  // isolate_manager, "isolate-manager", isolateManager
+  final candidates = ['isolate_manager', 'isolate-manager', 'isolateManager'];
+  for (final key in candidates) {
+    if (yaml.containsKey(key)) {
+      final node = yaml[key];
+      return _yamlToNative(node) as Map<String, dynamic>?;
+    }
+  }
+  return null;
+}
+
+dynamic _yamlToNative(dynamic node) {
+  if (node is YamlMap) {
+    final map = <String, dynamic>{};
+    for (final entry in node.entries) {
+      final k = entry.key.toString();
+      map[k] = _yamlToNative(entry.value);
+    }
+    return map;
+  }
+  if (node is YamlList) {
+    return node.map(_yamlToNative).toList();
+  }
+  return node;
 }
 
 /// Reads the content of a file and returns it as a list of lines
@@ -122,11 +160,12 @@ List<String> addOrUpdateWorkerMappingsFunction(
   String subPath,
 ) {
   final result = List<String>.from(content);
-  // We don't need to set the right separator here, the `IsolateManager.addWorkerMapping`
-  // method will handle it.
+  // We don't need to set the right separator here. The
+  // `IsolateManager.addWorkerMapping` method will handle it.
   final functionPath = subPath == '' ? functionName : '$subPath/$functionName';
   final newWorkerMappingLine =
-      "  IsolateManager.addWorkerMapping($functionName, '$functionPath');";
+      '  IsolateManager.addWorkerMapping($functionName, '
+      "'$functionPath');";
 
   final addWorkerMappingsIndex = result.indexWhere(
     (line) => line.replaceAll(' ', '').startsWith('void_addWorkerMappings()'),
@@ -144,9 +183,8 @@ List<String> addOrUpdateWorkerMappingsFunction(
       ..add('');
   } else {
     // Update existing function
-    final containsFunctionPath = result.any(
-      (line) => line.contains(RegExp('(\'$functionPath\'|"$functionPath")')),
-    );
+    final pattern = RegExp('(\'$functionPath\'|"$functionPath")');
+    final containsFunctionPath = result.any((line) => line.contains(pattern));
 
     if (!containsFunctionPath) {
       final line = result[addWorkerMappingsIndex].replaceAll(' ', '');
@@ -196,7 +234,8 @@ Future<void> addWorkerMappingToSourceFile(
 
   printDebug(
     () =>
-        'Updated source file: $sourceFilePath with new import, worker mapping call, and addWorkerMappings function.',
+        'Updated source file: $sourceFilePath with new import, '
+        'worker mapping call, and addWorkerMappings function.',
   );
 }
 
@@ -276,8 +315,9 @@ List<String> _containedAnnotations(
   for (final annotation in metadata) {
     final constantValue = annotation.computeConstantValue();
     if (constantValue != null) {
-      // We check only the variable name to avoid issues with different import paths.
-      // Not use this type check: `e == constantValue.type?.element?.name`
+      // We check only the variable name to avoid issues with different import
+      // paths.
+      // Do not use the type check `e == constantValue.type?.element?.name`.
       final foundAnnotation = classAnnotations.where(
         (e) => e == constantValue.variable?.name,
       );

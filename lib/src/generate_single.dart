@@ -180,20 +180,30 @@ Future<void> _generateFromAnnotatedFunction(List<dynamic> params) async {
       : '';
 
   try {
-    final sink = file.openWrite()
-      ..writeln("import '${p.basename(sourceFilePath)}';")
-      ..writeln("import 'package:isolate_manager/isolate_manager.dart';")
-      ..writeln()
-      ..writeln('main() {');
+    final content = <String>[
+      "import '${p.basename(sourceFilePath)}';",
+      "import 'package:isolate_manager/isolate_manager.dart';",
+      '',
+      'main() {',
+    ];
     if (function.value) {
-      sink.writeln(
+      content.add(
         '  IsolateManagerFunction.customWorkerFunction(${function.key});',
       );
     } else {
-      sink.writeln('  IsolateManagerFunction.workerFunction(${function.key});');
+      content.add('  IsolateManagerFunction.workerFunction(${function.key});');
     }
-    sink.writeln('}');
-    await sink.close();
+    content.add('}');
+
+    await file.writeAsString(content.join('\n'));
+
+    // Ensure the file is visible to the compiler (some filesystems may be
+    // eventually consistent). Wait briefly for the file to appear.
+    var attempts = 0;
+    while (!file.existsSync() && attempts < 5) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
 
     if (outputFile.existsSync()) {
       await outputFile.delete();
@@ -213,8 +223,6 @@ Future<void> _generateFromAnnotatedFunction(List<dynamic> params) async {
         '-o',
         outputPath,
         obfuscate,
-        if (!isWasm) '--omit-implicit-checks',
-        if (!isDebug && !isWasm) '--no-source-maps',
         ...dartArgs,
       ],
     );
@@ -233,19 +241,6 @@ Future<void> _generateFromAnnotatedFunction(List<dynamic> params) async {
             'Path: ${p.relative(sourceFilePath)} => '
             'Function: ${function.key} => Compiled: ${p.relative(outputPath)}',
       );
-      if (!isDebug) {
-        if (isWasm) {
-          final unoptWasmPath = p.join(output, '$name.unopt.wasm');
-          if (File(unoptWasmPath).existsSync()) {
-            await File(unoptWasmPath).delete();
-          }
-        } else {
-          final jsDepsPath = p.join(output, '$name.js.deps');
-          if (File(jsDepsPath).existsSync()) {
-            await File(jsDepsPath).delete();
-          }
-        }
-      }
     } else {
       printDebug(
         () =>

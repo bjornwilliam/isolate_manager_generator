@@ -148,22 +148,33 @@ Future<void> _generateFromAnnotatedFunctions(
       : '';
 
   try {
-    final sink = file.openWrite()
-      ..writeln("import 'package:isolate_manager/isolate_manager.dart';");
+    final content = <String>[
+      "import 'package:isolate_manager/isolate_manager.dart';",
+    ];
     for (final function in anotatedFunctions.entries) {
       final path = p.relative(function.value);
-      sink.writeln("import '${path.replaceAll(p.separator, '/')}';");
+      content.add("import '${path.replaceAll(p.separator, '/')}';");
     }
-    sink.writeln('final Map<String, Function> map = {');
+    content.add('final Map<String, Function> map = {');
     for (final function in anotatedFunctions.entries) {
-      sink.writeln("'${function.key}' : ${function.key},");
+      content.add("'${function.key}' : ${function.key},");
     }
-    sink
-      ..writeln('};')
-      ..writeln('main() {')
-      ..writeln('  IsolateManagerFunction.sharedWorkerFunction(map);')
-      ..writeln('}');
-    await sink.close();
+    content.addAll([
+      '};',
+      'main() {',
+      '  IsolateManagerFunction.sharedWorkerFunction(map);',
+      '}',
+    ]);
+
+    await file.writeAsString(content.join('\n'));
+
+    // Ensure the file is visible to the compiler (some filesystems may be
+    // eventually consistent). Wait briefly for the file to appear.
+    var attempts = 0;
+    while (!file.existsSync() && attempts < 5) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
 
     if (outputFile.existsSync()) {
       await outputFile.delete();
@@ -183,8 +194,6 @@ Future<void> _generateFromAnnotatedFunctions(
         '-o',
         p.normalize(outputPath),
         obfuscate,
-        if (!isWasm) '--omit-implicit-checks',
-        if (!isDebug && !isWasm) '--no-source-maps',
         ...dartArgs,
       ],
     );
@@ -199,19 +208,6 @@ Future<void> _generateFromAnnotatedFunctions(
 
     if (outputFile.existsSync()) {
       printDebug(() => 'Compiled: ${p.relative(outputPath)}');
-      if (!isDebug) {
-        if (isWasm) {
-          final unoptWasmFile = File(p.join(output, '$name.unopt.wasm'));
-          if (unoptWasmFile.existsSync()) {
-            await unoptWasmFile.delete();
-          }
-        } else {
-          final jsDepsFile = File(p.join(output, '$name.js.deps'));
-          if (jsDepsFile.existsSync()) {
-            await jsDepsFile.delete();
-          }
-        }
-      }
     } else {
       printDebug(() => 'Compile ERROR: ${p.relative(outputPath)}');
       final r = result.stdout.toString().split('\n');

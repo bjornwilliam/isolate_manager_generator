@@ -1,3 +1,108 @@
+## 0.4.2
+
+* Supports pubspec configuration:
+
+    You can provide default configuration for the generator in your project's
+    `pubspec.yaml` under a top-level `isolate_manager` node. CLI flags always take
+    precedence over values in `pubspec.yaml`.
+
+    Example (commented schema):
+
+    ```yaml
+    # Top-level node for generator defaults
+    isolate_manager:
+        # Path to scan for source files (defaults to "./lib")
+        input: ./lib
+
+        # Output folder for generated files (defaults to "web")
+        output: ./web
+
+        # Generate single workers (true/false)
+        single: true
+
+        # Generate shared worker (true/false)
+        shared: true
+
+        # Name of the generated shared Worker
+        shared-name: shared_worker
+
+        # JS obfuscation level (0..4)
+        obfuscate: 4
+
+        # Compile to wasm instead of JS
+        wasm: false
+
+        # Export debug/intermediate files
+        debug: false
+
+        # Sub-path of the function name when generating worker-mappings
+        sub-path: workers
+
+        # Path to the main/source file to inject workerMappings (optional)
+        worker-mappings-experiment: lib/main.dart
+
+        # Extra Dart args passed to dart compile before CLI dart args
+        dart-args:
+            - --no-source-maps
+    ```
+
+    When you run the generator with no flags:
+
+    ```bash
+    dart run isolate_manager_generator
+    ```
+
+    it will read `pubspec.yaml` from the current working directory and use values
+    from the `isolate_manager` node as defaults. Pass CLI flags to override any
+    setting from `pubspec.yaml`.
+
+    Supported keys: `input`, `output`, `single`, `shared`, `shared-name`,
+    `obfuscate`, `wasm`, `debug`, `sub-path`, `worker-mappings-experiment`,
+    `dart-args`.
+
+
+## 0.4.1
+
+* Refactor file writing in annotated function generation to use a list for content accumulation.
+* Ensure the Dart temp files are existed before running the JS generator.
+
+## 0.4.0
+
+* BREAKING CHANGE: Removed `--omit-implicit-checks` option.
+    Before (the option is added automatically):
+
+    ```dart
+    dart run isolate_manager_generator
+    ```
+
+    After (the option is added manually):
+
+    ```dart
+    dart run isolate_manager_generator -- --omit-implicit-checks
+    ```
+
+* BREAKING CHANGE: Removed unused source map generation and cleanup logic.
+    Before (the option is added automatically):
+
+    ```dart
+    dart run isolate_manager_generator
+    ```
+
+    After (the option is added manually):
+
+    ```dart
+    dart run isolate_manager_generator -- --no-source-maps
+    ```
+
+* BREAKING CHANGE: The `js.deps` files are no longer removed automatically, and there is no helper available for this change.
+* Bump the dart analyzer to `^10.0.0`.
+
+## 0.3.1
+
+* Improve the deletion logic to check for file existence before deletion.
+* Refactor the code to completely satisfy with `very_good_analysis: ^10.0.0`.
+* Improve the tests.
+
 ## 0.3.0
 
 * Update to support Dart SDK `^3.9.0`.

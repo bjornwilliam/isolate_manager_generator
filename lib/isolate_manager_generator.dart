@@ -10,6 +10,25 @@ import 'package:path/path.dart';
 
 /// A utility class for generating isolate manager workers.
 class IsolateManagerGenerator {
+  /// Resolves effective dart args from CLI and pubspec config.
+  ///
+  /// Pubspec `dart-args` are prepended so CLI dart args keep higher priority.
+  static List<String> resolveDartArgs(
+    Map<String, dynamic>? pubspecConfig,
+    List<String> cliDartArgs,
+  ) {
+    final dartArgs = <String>[];
+    if (pubspecConfig != null && pubspecConfig.containsKey('dart-args')) {
+      final pubspecDartArgs = pubspecConfig['dart-args'];
+      if (pubspecDartArgs is List) {
+        dartArgs.addAll(List<String>.from(pubspecDartArgs));
+      }
+    }
+
+    dartArgs.addAll(cliDartArgs);
+    return dartArgs;
+  }
+
   /// Executes the isolate manager generator with the provided arguments.
   ///
   /// Takes a list of command-line arguments, processes them, and generates
@@ -45,6 +64,77 @@ class IsolateManagerGenerator {
 
   static Future<void> _execute(List<String> args) async {
     final parsedArgs = parseArgs(args);
+
+    // Read pubspec `isolate_manager` node and merge into main args when not
+    // explicitly provided on CLI. CLI has precedence over pubspec values.
+    final pubspecConfig = readPubspecConfig();
+    final mainArgs = List<String>.from(parsedArgs.mainArgs);
+
+    bool provided(List<String> list, String long, String? short) {
+      return list.any((a) => a == '-$short' || a.startsWith('--$long'));
+    }
+
+    if (pubspecConfig != null) {
+      // Flags: single, shared, wasm, debug
+      if (pubspecConfig.containsKey('single') &&
+          !provided(mainArgs, 'single', 's')) {
+        if (pubspecConfig['single'] == true) {
+          mainArgs.add('--single');
+        } else {
+          mainArgs.add('--no-single');
+        }
+      }
+      if (pubspecConfig.containsKey('shared') &&
+          !provided(mainArgs, 'shared', null)) {
+        if (pubspecConfig['shared'] == true) {
+          mainArgs.add('--shared');
+        } else {
+          mainArgs.add('--no-shared');
+        }
+      }
+      if (pubspecConfig.containsKey('wasm') &&
+          !provided(mainArgs, 'wasm', null) &&
+          pubspecConfig['wasm'] == true) {
+        mainArgs.add('--wasm');
+      }
+      if (pubspecConfig.containsKey('debug') &&
+          !provided(mainArgs, 'debug', null) &&
+          pubspecConfig['debug'] == true) {
+        mainArgs.add('--debug');
+      }
+
+      // Options: input, output, shared-name, obfuscate,
+      // sub-path, worker-mappings-experiment
+      if (pubspecConfig.containsKey('input') &&
+          !provided(mainArgs, 'input', 'i')) {
+        mainArgs.add('--input=${pubspecConfig['input']}');
+      }
+      if (pubspecConfig.containsKey('output') &&
+          !provided(mainArgs, 'output', 'o')) {
+        mainArgs.add('--output=${pubspecConfig['output']}');
+      }
+      if (pubspecConfig.containsKey('shared-name') &&
+          !provided(mainArgs, 'shared-name', null)) {
+        mainArgs.add('--shared-name=${pubspecConfig['shared-name']}');
+      }
+      if (pubspecConfig.containsKey('obfuscate') &&
+          !provided(mainArgs, 'obfuscate', null)) {
+        mainArgs.add('--obfuscate=${pubspecConfig['obfuscate']}');
+      }
+      if (pubspecConfig.containsKey('sub-path') &&
+          !provided(mainArgs, 'sub-path', null)) {
+        mainArgs.add('--sub-path=${pubspecConfig['sub-path']}');
+      }
+      if (pubspecConfig.containsKey('worker-mappings-experiment') &&
+          !provided(mainArgs, 'worker-mappings-experiment', null)) {
+        mainArgs.add(
+          '--worker-mappings-experiment='
+          '${pubspecConfig['worker-mappings-experiment']}',
+        );
+      }
+    }
+
+    final dartArgs = resolveDartArgs(pubspecConfig, parsedArgs.dartArgs);
 
     final parser = ArgParser()
       ..addFlag(
@@ -85,7 +175,8 @@ class IsolateManagerGenerator {
       ..addFlag(
         'debug',
         help:
-            'Export the debug files like *.js.deps, *.js.map and *.unopt.wasm',
+            'Export the debug files (including the generated Worker files '
+            'and the intermediate files)',
       )
       ..addFlag(
         'wasm',
@@ -95,18 +186,21 @@ class IsolateManagerGenerator {
         'worker-mappings-experiment',
         defaultsTo: '',
         help:
-            '[Experiment] Generate the `workerMappings` and add it to the `main` app automatically',
+            '[Experiment] Generate the `workerMappings` and add it to '
+            'the `main` app automatically',
       )
       ..addFlag('help', abbr: 'h', help: 'Display this help message.')
       ..addOption(
         'sub-path',
         help:
-            "Sub-path of the function name when generate the worker-mappings (apply only for the single functions). It's different from the `output` path.",
+            'Sub-path of the function name when generating the '
+            'worker-mappings (applies only to single functions). '
+            "It's different from the `output` path.",
         defaultsTo: '',
         aliases: ['sub-dir'],
       );
 
-    final argResults = parser.parse(parsedArgs.mainArgs);
+    final argResults = parser.parse(mainArgs);
 
     if (argResults['help'] as bool) {
       printDebug(() => parser.usage);
@@ -132,13 +226,13 @@ class IsolateManagerGenerator {
 
     if (isSingle) {
       printDebug(() => '>> Generating the single Workers...');
-      await single.generate(argResults, parsedArgs.dartArgs, dartFiles);
+      await single.generate(argResults, dartArgs, dartFiles);
       printDebug(() => '>> Generated.');
     }
 
     if (isShared) {
       printDebug(() => '>> Generating the shared Worker...');
-      await shared.generate(argResults, parsedArgs.dartArgs, dartFiles);
+      await shared.generate(argResults, dartArgs, dartFiles);
       printDebug(() => '>> Generated.');
     }
   }
